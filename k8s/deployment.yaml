@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-video-search
+  labels:
+    app: rag-video-search
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: rag-video-search
+  template:
+    metadata:
+      labels:
+        app: rag-video-search
+    spec:
+      containers:
+        - name: rag-video-search
+          image: your-repo/rag-video-search:latest
+          ports:
+            - containerPort: 8000
+          resources:
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+            requests:
+              cpu: "2"
+              memory: "4Gi"
+          env:
+            - name: PYTHONPATH
+              value: "/app"
+          volumeMounts:
+            - name: data-volume
+              mountPath: /app/data
+      volumes:
+        - name: data-volume
+          persistentVolumeClaim:
+            claimName: rag-data-pvc

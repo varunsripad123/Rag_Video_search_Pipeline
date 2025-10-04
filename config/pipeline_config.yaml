@@ -1,0 +1,44 @@
+dataset:
+  input_dir: "data/raw_videos"
+  output_dir: "data/processed"
+
+storage:
+  chunks_dir: "data/chunks"
+  embeddings_dir: "data/embeddings"
+  indexes_dir: "data/indexes"
+
+processing:
+  chunk_length_sec: 2
+  max_workers: 4
+  overlap_sec: 0.5
+
+embedding:
+  models:
+    - name: "openai/clip-vit-base-patch32"
+      embedding_dim: 512
+      weight: 1.0
+
+neural_codec:
+  quality_level: 3
+  bitrate_target: 1000000
+
+indexing:
+  metric: "cosine"
+  index_type: "flat"
+
+rag:
+  retriever:
+    model_name: "sentence-transformers/all-MiniLM-L6-v2"
+    top_k_retrieve: 100
+    top_k_rerank: 20
+  generator:
+    model_name: "microsoft/DialoGPT-medium"
+    max_length: 512
+    temperature: 0.7
+  query_expansion: true
+
+api:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 4
+  cors_origins: ["*"]
