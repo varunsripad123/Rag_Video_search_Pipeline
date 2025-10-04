@@ -19,8 +19,8 @@ echo "Applying Kubernetes manifests..."
 kubectl apply -f k8s/
 
 echo "Waiting for deployment to complete..."
-kubectl rollout status deployment/rag-video-search --timeout=300s
+kubectl rollout status deployment/rag-video-api --timeout=300s
 
 echo "Deployment completed successfully!"
-echo "Check status: kubectl get all -l app=rag-video-search"
-echo "View logs: kubectl logs -f deployment/rag-video-search"
+echo "Check status: kubectl get all -l app=rag-video"
+echo "View logs: kubectl logs -f deployment/rag-video-api"

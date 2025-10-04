@@ -1,38 +1,41 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: rag-video-search
+  name: rag-video-api
   labels:
-    app: rag-video-search
+    app: rag-video
 spec:
-  replicas: 3
+  replicas: 2
   selector:
     matchLabels:
-      app: rag-video-search
+      app: rag-video
   template:
     metadata:
       labels:
-        app: rag-video-search
+        app: rag-video
     spec:
       containers:
-        - name: rag-video-search
-          image: your-repo/rag-video-search:latest
+        - name: api
+          image: ghcr.io/example/rag-video:latest
+          imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 8000
+            - containerPort: 8080
+          env:
+            - name: RAG_CONFIG_PATH
+              value: /app/config/pipeline.yaml
+          volumeMounts:
+            - name: config
+              mountPath: /app/config/pipeline.yaml
+              subPath: pipeline.yaml
           resources:
             limits:
+              nvidia.com/gpu: 1
               cpu: "4"
-              memory: "8Gi"
+              memory: 8Gi
             requests:
               cpu: "2"
-              memory: "4Gi"
-          env:
-            - name: PYTHONPATH
-              value: "/app"
-          volumeMounts:
-            - name: data-volume
-              mountPath: /app/data
+              memory: 4Gi
       volumes:
-        - name: data-volume
-          persistentVolumeClaim:
-            claimName: rag-data-pvc
+        - name: config
+          configMap:
+            name: rag-video-config

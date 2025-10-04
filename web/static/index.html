@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RAG Video Search</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header>
+        <h1>RAG Video Search</h1>
+        <p>Conversational retrieval over your labeled video corpus.</p>
+      </header>
+      <main>
+        <section class="controls">
+          <label>
+            API Endpoint
+            <input type="text" id="apiUrl" value="http://localhost:8080" />
+          </label>
+          <label>
+            API Key
+            <input type="password" id="apiKey" placeholder="Enter API key" />
+          </label>
+        </section>
+        <section class="chat">
+          <div id="history" class="history"></div>
+          <div class="input-row">
+            <input type="text" id="query" placeholder="Ask about your videos" />
+            <button id="send">Search</button>
+          </div>
+        </section>
+        <section class="results">
+          <h2>Results</h2>
+          <div id="results"></div>
+        </section>
+      </main>
+    </div>
+    <script src="app.js"></script>
+  </body>
+</html>
