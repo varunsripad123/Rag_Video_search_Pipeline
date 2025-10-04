@@ -1,31 +1,16 @@
-FROM python:3.10-slim
+# syntax=docker/dockerfile:1.5
+FROM pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    unrar \
-    && rm -rf /var/lib/apt/lists/*
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    RAG_CONFIG_PATH=/app/config/pipeline.yaml
 
-# Copy requirements and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt ./
+RUN pip install --upgrade pip && pip install -r requirements.txt
 
-# Copy source code
-COPY src/ ./src/
-COPY config/ ./config/
-COPY run_pipeline.py .
+COPY . .
 
-# Create data directories
-RUN mkdir -p data/raw_videos data/chunks data/embeddings data/indexes logs
-
-# Expose port
-EXPOSE 8000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
-
-# Run the application
-CMD ["uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+EXPOSE 8080
+CMD ["uvicorn", "src.api.server:build_app", "--factory", "--host", "0.0.0.0", "--port", "8080"]
