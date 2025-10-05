@@ -16,12 +16,21 @@
         <section class="controls">
           <label>
             API Endpoint
-            <input type="text" id="apiUrl" value="http://localhost:8080" />
+            <input
+              type="text"
+              id="apiUrl"
+              placeholder="http://localhost:8080"
+              autocomplete="off"
+            />
           </label>
           <label>
             API Key
             <input type="password" id="apiKey" placeholder="Enter API key" />
           </label>
+          <div class="status" id="status">
+            <span class="status-indicator" id="statusIndicator"></span>
+            <button id="checkConnection" type="button">Test connection</button>
+          </div>
         </section>
         <section class="chat">
           <div id="history" class="history"></div>
