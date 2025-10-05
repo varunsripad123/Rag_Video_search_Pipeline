@@ -10,7 +10,7 @@ import torch
 from src.config import AppConfig
 from src.models import CLIPEncoder, VideoMAEEncoder, VideoSwinEncoder
 from src.utils.logging import get_logger
-from src.utils.video import VideoChunk, load_video_frames
+from src.utils.video import VideoChunk, load_frames
 
 LOGGER = get_logger(__name__)
 
@@ -40,14 +40,19 @@ class EmbeddingExtractor:
 
     def encode_chunk(self, chunk: VideoChunk) -> np.ndarray:
         LOGGER.debug("Encoding chunk", extra={"chunk": str(chunk.video_path)})
-        frames = load_video_frames(chunk.video_path)
+        frames = load_frames(chunk.video_path)
         return self.encode_frames(frames)
 
     def encode_frames(self, frames: np.ndarray) -> np.ndarray:
-        clip_embedding = self.clip.encode(frames)
-        mae_embedding = self.videomae.encode(frames)
-        swin_embedding = self.videoswin.encode(frames)
-        return np.concatenate([clip_embedding, mae_embedding, swin_embedding], axis=1).squeeze(0)
+        frame_sequence = [frame for frame in frames]
+        clip_embedding = self.clip.encode(frame_sequence)
+        mae_embedding = self.videomae.encode(frame_sequence)
+        swin_embedding = self.videoswin.encode(frame_sequence)
+        clip_pooled = clip_embedding.mean(axis=0)
+        mae_pooled = mae_embedding.mean(axis=0)
+        swin_pooled = swin_embedding.mean(axis=0)
+        combined = np.concatenate([clip_pooled, mae_pooled, swin_pooled])
+        return combined.astype(np.float32)
 
     def encode_chunks(self, chunks: Iterable[VideoChunk], output_dir: Path) -> List[Path]:
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -58,6 +63,10 @@ class EmbeddingExtractor:
             np.save(path, embedding)
             saved_paths.append(path)
         return saved_paths
+
+    @staticmethod
+    def _load_frames(video_path: Path) -> np.ndarray:
+        return load_frames(video_path)
 
     @staticmethod
     def configure_precision() -> None:

@@ -28,14 +28,32 @@ class VideoChunk:
     def duration(self) -> float:
         return (self.end_frame - self.start_frame) / self.fps
 
+    @property
+    def start_time(self) -> float:
+        return self.start_frame / self.fps
+
+    @property
+    def end_time(self) -> float:
+        return self.end_frame / self.fps
+
 
 def iter_videos(root_dir: Path) -> Generator[Tuple[Path, str], None, None]:
-    """Yield (path, label) pairs from a labeled directory tree."""
+    """Yield ``(path, label)`` pairs from a labeled directory tree.
 
+    The iterator is resilient to mixed case extensions and skips files that
+    cannot be opened as videos so that a single corrupt asset does not stop the
+    pipeline.
+    """
+
+    supported_suffixes = {".mp4", ".mov", ".mkv", ".avi"}
+    if not root_dir.exists():
+        return
     for label_dir in root_dir.iterdir():
         if not label_dir.is_dir():
             continue
-        for video_file in label_dir.glob("*.mp4"):
+        for video_file in label_dir.iterdir():
+            if video_file.suffix.lower() not in supported_suffixes:
+                continue
             yield video_file, label_dir.name
 
 
@@ -99,10 +117,12 @@ def write_video(path: Path, frames: Iterable[np.ndarray], fps: float) -> None:
     writer.release()
 
 
-def load_video_frames(video_path: Path) -> np.ndarray:
-    """Load a video file into a numpy array of frames (T, H, W, C)."""
+def load_frames(video_path: Path) -> np.ndarray:
+    """Load all frames from a video file into a numpy array."""
 
     capture = cv2.VideoCapture(str(video_path))
+    if not capture.isOpened():
+        raise RuntimeError(f"Failed to open video: {video_path}")
     frames = []
     success, frame = capture.read()
     while success:
@@ -112,14 +132,3 @@ def load_video_frames(video_path: Path) -> np.ndarray:
     if not frames:
         raise RuntimeError(f"No frames extracted from {video_path}")
     return np.stack(frames)
-
-
-def probe_fps(video_path: Path, default: float = 24.0) -> float:
-    """Return the frames-per-second of a video file."""
-
-    capture = cv2.VideoCapture(str(video_path))
-    fps = capture.get(cv2.CAP_PROP_FPS)
-    capture.release()
-    if not fps or fps <= 0:
-        return default
-    return float(fps)

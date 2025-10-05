@@ -1,35 +1,39 @@
 """High-level pipeline orchestration."""
 from __future__ import annotations
 
-import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List
 from uuid import uuid4
 
 import numpy as np
 from blake3 import blake3
-from skimage.metrics import peak_signal_noise_ratio
+from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
 from src.config import AppConfig
-from src.core.chunking import chunk_dataset, persist_metadata
+from src.core.chunking import chunk_dataset
+from src.core.codecs import EncodedArtifact, NeuralVideoCodec
 from src.core.embedding import EmbeddingExtractor
 from src.core.indexing import build_index
-from src.core.codecs import NeuralVideoCodec
 from src.utils import track_stage
-from src.utils.io import ManifestEntry
+from src.utils.io import ManifestRecord, write_manifest
 from src.utils.logging import get_logger
-from src.utils.video import VideoChunk, load_video_frames
+from src.utils.video import VideoChunk, load_frames
 
 LOGGER = get_logger(__name__)
 
 
 def run_pipeline(config: AppConfig) -> Path:
-    """Execute chunking, encoding, embedding extraction, and index build."""
+    """Execute chunking, compression, embedding extraction, and index build."""
 
     chunks = _chunk(config)
-    manifest = _encode_and_embed(config, chunks)
-    metadata_path = config.data.processed_dir / "metadata.json"
-    persist_metadata(metadata_path, manifest)
+    if not chunks:
+        raise RuntimeError(
+            "No video chunks were produced. Ensure the dataset contains supported video files with enough frames."
+        )
+    manifest = _process_chunks(config, chunks)
+    manifest_path = config.data.processed_dir / "manifest.json"
+    write_manifest(manifest_path, manifest)
     index_path = build_index(config, manifest)
     return index_path
 
@@ -40,111 +44,91 @@ def _chunk(config: AppConfig) -> List[VideoChunk]:
     return chunks
 
 
-def _encode_and_embed(config: AppConfig, chunks: List[VideoChunk]) -> List[ManifestEntry]:
-    with track_stage("embedding"):
+def _process_chunks(config: AppConfig, chunks: List[VideoChunk]) -> List[ManifestRecord]:
+    with track_stage("processing"):
         extractor = EmbeddingExtractor(config)
         extractor.configure_precision()
         extractor.load()
+        codec = NeuralVideoCodec(config.codec, device=config.models.device)
 
-    codec = NeuralVideoCodec(config.codec, device=config.models.device)
+        embeddings_dir = config.data.processed_dir / "embeddings"
+        tokens_dir = config.data.processed_dir / "tokens"
+        sideinfo_dir = config.data.processed_dir / "sideinfo"
+        embeddings_dir.mkdir(parents=True, exist_ok=True)
+        tokens_dir.mkdir(parents=True, exist_ok=True)
+        sideinfo_dir.mkdir(parents=True, exist_ok=True)
 
-    embeddings_dir = config.data.processed_dir / "embeddings"
-    tokens_dir = config.data.processed_dir / "tokens"
-    sideinfo_dir = config.data.processed_dir / "sideinfo"
-    for directory in (embeddings_dir, tokens_dir, sideinfo_dir):
-        directory.mkdir(parents=True, exist_ok=True)
+        manifest: List[ManifestRecord] = []
+        origin = datetime.now(timezone.utc)
 
-    manifest: List[ManifestEntry] = []
-    for chunk in chunks:
-        frames = load_video_frames(chunk.video_path)
-        entry, _ = build_manifest_entry(
-            config=config,
-            codec=codec,
-            extractor=extractor,
-            chunk=chunk,
-            frames=frames,
-            embeddings_dir=embeddings_dir,
-            tokens_dir=tokens_dir,
-            sideinfo_dir=sideinfo_dir,
-        )
-        manifest.append(entry)
+        for chunk in chunks:
+            frames = load_frames(chunk.video_path)
+            embedding = extractor.encode_frames(frames)
+            embedding_path = embeddings_dir / f"{chunk.video_path.stem}.npy"
+            np.save(embedding_path, embedding)
 
-    return manifest
+            artifact = codec.encode(frames, tokens_dir, chunk.video_path.stem)
+            sideinfo_target = sideinfo_dir / artifact.sideinfo_path.name
+            if artifact.sideinfo_path != sideinfo_target:
+                new_path = artifact.sideinfo_path.replace(sideinfo_target)
+                artifact = EncodedArtifact(
+                    token_path=artifact.token_path,
+                    sideinfo_path=new_path,
+                    latent_shape=artifact.latent_shape,
+                    entropy_scale=artifact.entropy_scale,
+                )
 
+            decoded = codec.decode(artifact)
+            quality = _compute_quality_metrics(frames, decoded)
 
-def build_manifest_entry(
-    config: AppConfig,
-    codec: NeuralVideoCodec,
-    extractor: EmbeddingExtractor,
-    chunk: VideoChunk,
-    frames: np.ndarray,
-    embeddings_dir: Path,
-    tokens_dir: Path,
-    sideinfo_dir: Path,
-) -> tuple[ManifestEntry, np.ndarray]:
-    """Encode embeddings and metadata for a single chunk."""
+            original_size = chunk.video_path.stat().st_size
+            encoded_size = artifact.token_path.stat().st_size + artifact.sideinfo_path.stat().st_size
+            ratio = (original_size / encoded_size) if encoded_size else 0.0
+            digest = blake3(artifact.token_path.read_bytes()).hexdigest()
 
-    token_path = tokens_dir / f"{chunk.video_path.stem}.npy"
-    encoded = codec.encode(frames, token_path)
+            start_dt = origin + timedelta(seconds=chunk.start_time)
+            end_dt = origin + timedelta(seconds=chunk.end_time)
 
-    decoded = codec.decode(token_path)
-    quality = _quality_metrics(frames, decoded)
+            manifest.append(
+                ManifestRecord(
+                    manifest_id=str(uuid4()),
+                    tenant_id=config.project.default_tenant_id,
+                    stream_id=f"{chunk.label}:{chunk.video_path.stem}",
+                    label=chunk.label,
+                    t0=start_dt.isoformat(),
+                    t1=end_dt.isoformat(),
+                    start_time=chunk.start_time,
+                    end_time=chunk.end_time,
+                    codebook_id=config.project.default_codebook_id,
+                    model_id=config.project.default_model_id,
+                    chunk_path=str(chunk.video_path),
+                    token_uri=str(artifact.token_path),
+                    sideinfo_uri=str(artifact.sideinfo_path),
+                    embedding_path=str(embedding_path),
+                    byte_size=encoded_size,
+                    ratio=ratio,
+                    hash=f"blake3:{digest}",
+                    quality_stats=quality,
+                    tags=[chunk.label],
+                )
+            )
 
-    sideinfo = {
-        "codebook_id": config.codec.codebook_id,
-        "layout": "tiles16x16",
-        "dims": frames.shape[1:3],
-        "time_stride": frames.shape[0],
-    }
-    sideinfo_path = sideinfo_dir / f"{chunk.video_path.stem}.json"
-    sideinfo_path.write_text(json.dumps(sideinfo, indent=2), encoding="utf-8")
-
-    embedding = extractor.encode_frames(frames)
-    embedding_path = embeddings_dir / f"{chunk.video_path.stem}.npy"
-    np.save(embedding_path, embedding)
-
-    token_bytes = encoded.size_bytes
-    source_bytes = Path(chunk.video_path).stat().st_size
-    ratio = source_bytes / max(token_bytes, 1)
-    digest = blake3(token_path.read_bytes()).hexdigest()
-
-    entry = ManifestEntry(
-        manifest_id=str(uuid4()),
-        tenant_id=config.data.default_tenant,
-        stream_id=_stream_id(chunk),
-        label=chunk.label,
-        chunk_path=str(chunk.video_path.resolve()),
-        token_path=str(token_path.resolve()),
-        sideinfo_path=str(sideinfo_path.resolve()),
-        embedding_path=str(embedding_path.resolve()),
-        start_time=chunk.start_frame / chunk.fps,
-        end_time=chunk.end_frame / chunk.fps,
-        fps=chunk.fps,
-        codebook_id=config.codec.codebook_id,
-        model_id=config.codec.model_id,
-        byte_size=token_bytes,
-        ratio=ratio,
-        hash=f"blake3:{digest}",
-        tags=[chunk.label],
-        quality_stats=quality,
-    )
-    return entry, embedding
+        return manifest
 
 
-def _stream_id(chunk: VideoChunk) -> str:
-    base = chunk.video_path.stem
-    return base.split("_chunk")[0]
+def _compute_quality_metrics(original: np.ndarray, reconstructed: np.ndarray) -> dict[str, float]:
+    """Estimate PSNR and a SSIM-based proxy for VMAF across frames."""
 
-
-def _quality_metrics(original: np.ndarray, reconstructed: np.ndarray) -> dict[str, float]:
     original = original.astype(np.float32)
     reconstructed = reconstructed.astype(np.float32)
-    min_frames = min(original.shape[0], reconstructed.shape[0])
-    original = original[:min_frames]
-    reconstructed = reconstructed[:min_frames]
-    if reconstructed.size == 0:
-        return {"psnr": 0.0, "vmaf": 0.0}
-    psnr = peak_signal_noise_ratio(original, reconstructed, data_range=255.0)
-    mae = float(np.abs(original - reconstructed).mean())
-    vmaf_proxy = max(0.0, min(100.0, 100.0 - mae / 255.0 * 100.0))
-    return {"psnr": float(psnr), "vmaf": float(vmaf_proxy)}
+    psnr_values = []
+    ssim_values = []
+    for reference, candidate in zip(original, reconstructed):
+        psnr_values.append(peak_signal_noise_ratio(reference, candidate, data_range=255))
+        ssim_values.append(
+            structural_similarity(reference, candidate, data_range=255, channel_axis=-1)
+        )
+    return {
+        "psnr": float(np.mean(psnr_values)) if psnr_values else 0.0,
+        "vmaf": float(np.mean(ssim_values) * 100) if ssim_values else 0.0,
+    }

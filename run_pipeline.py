@@ -30,7 +30,7 @@ def main() -> None:
     table.add_column("Artifact")
     table.add_column("Location")
     table.add_row("FAISS Index", str(index_path))
-    table.add_row("Metadata", str(config.data.processed_dir / "metadata.json"))
+    table.add_row("Manifest", str(config.data.processed_dir / "manifest.json"))
     console.print(table)
 
 

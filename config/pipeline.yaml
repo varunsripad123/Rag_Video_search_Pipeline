@@ -1,6 +1,9 @@
 project:
   name: "RAG Video Search"
   environment: "development"
+  default_tenant_id: "tenant_demo"
+  default_codebook_id: "cb_v1"
+  default_model_id: "video_encoder_v1"
 
 data:
   root_dir: "datasets"
@@ -9,8 +12,6 @@ data:
   frame_rate: 2
   min_frames: 8
   batch_size: 4
-  default_tenant: "tenant-default"
-  stream_prefix: "stream"
 
 models:
   device: "cuda"
@@ -26,8 +27,6 @@ codec:
   quantization_bits: 8
   residual_channels: 128
   latent_channels: 256
-  codebook_id: "cb_v1"
-  model_id: "video_encoder_v1"
 
 index:
   faiss_index_path: "data/index/faiss.index"

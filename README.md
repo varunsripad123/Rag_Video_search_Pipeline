@@ -119,6 +119,41 @@ Update `config/pipeline.yaml` with the `data.root_dir` path pointing to your
 `datasets` folder. Processed chunks and embeddings will be stored under
 `data.processed_dir`.
 
+#### Example: Using a Windows dataset path
+
+If your labeled videos live at `C:\Users\kvaru\Downloads\ground_clips`,
+follow these exact steps:
+
+1. Ensure the directory contains sub-folders for each label (create them if
+   necessary) and move the respective videos inside each label folder.
+2. Open `config/pipeline.yaml` and set
+   ```yaml
+   data:
+     root_dir: "C:/Users/kvaru/Downloads/ground_clips"
+     processed_dir: "C:/Users/kvaru/Downloads/ground_clips/processed"
+   ```
+   Use forward slashes in the YAML file so the path is interpreted correctly on
+   all platforms.
+3. From an activated virtual environment, run
+   ```bash
+   python run_pipeline.py --config config/pipeline.yaml
+   ```
+   The command will create the `processed` directory (if it does not already
+   exist), generate manifests, tokens, and embeddings for every labeled video,
+   and refresh the FAISS index.
+4. Launch the API server with
+   ```bash
+   uvicorn src.api.server:build_app --factory --host 0.0.0.0 --port 8080
+   ```
+   Then use the API key defined in `config/pipeline.yaml` (under
+   `security.api_keys`) when calling the endpoints or using the web UI.
+5. To explore the results visually, open `web/static/index.html` in your
+   browser, configure the API URL (e.g., `http://localhost:8080`) and API key in
+   the UI, and issue search queries against your newly processed dataset.
+
+These steps mirror the general instructions but provide concrete values for the
+`C:\Users\kvaru\Downloads\ground_clips` dataset path.
+
 ### Running the Pipeline
 
 The pipeline runner orchestrates chunking, embedding extraction, and index
@@ -130,7 +165,7 @@ python run_pipeline.py --config config/pipeline.yaml
 
 This will:
 
-1. Extract video chunks and metadata to `processed/chunks/`.
+1. Extract video chunks and persist manifests in `processed/`.
 2. Encode chunks with the neural codec for efficient storage.
 3. Generate embeddings via CLIP, VideoMAE, and Video Swin.
 4. Build or refresh the FAISS index at `data/index/faiss.index`.

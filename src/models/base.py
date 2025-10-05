@@ -2,10 +2,15 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from contextlib import nullcontext
 from typing import Iterable
 
 import numpy as np
 import torch
+
+from src.utils.logging import get_logger
+
+LOGGER = get_logger(__name__)
 
 
 class BaseEncoder(ABC):
@@ -17,7 +22,7 @@ class BaseEncoder(ABC):
         self.quantize = quantize
         self.model = None
         self.processor = None
-        self._use_fallback = False
+        self._fallback = False
 
     @abstractmethod
     def load(self) -> None:
@@ -30,26 +35,32 @@ class BaseEncoder(ABC):
     def _autocast(self):
         if self.device.type == "cuda" and self.precision == "fp16":
             return torch.cuda.amp.autocast()
-        return torch.autocast(device_type=self.device.type, dtype=torch.float32, enabled=False)
+        if self.device.type == "cpu":
+            return nullcontext()
+        return torch.autocast(device_type=self.device.type, dtype=torch.float32)
 
-    def _fallback_encode(self, frames: Iterable[np.ndarray], components: int = 512) -> np.ndarray:
-        """Compute lightweight histogram-based embeddings when models are unavailable."""
+    def _fallback_encode(self, frames: Iterable[np.ndarray], target_dim: int = 512) -> np.ndarray:
+        """Generate a deterministic statistical embedding when models are unavailable."""
 
-        arrays = [np.asarray(frame, dtype=np.float32) for frame in frames]
-        if not arrays:
-            raise ValueError("No frames provided to fallback encoder")
-        stacked = np.stack(arrays)
-        bins = max(16, components // 3)
+        array = np.asarray(list(frames), dtype=np.float32)
+        if array.size == 0:
+            raise ValueError("Received no frames to encode")
+        array = array / 255.0
+        stats = [array.mean(axis=(0, 1, 2)), array.std(axis=(0, 1, 2))]
         histograms = []
-        for channel in range(min(stacked.shape[-1], 3)):
-            channel_values = stacked[..., channel].ravel()
-            hist, _ = np.histogram(channel_values, bins=bins, range=(0, 255), density=True)
+        for channel in range(array.shape[-1]):
+            hist, _ = np.histogram(array[..., channel], bins=128, range=(0.0, 1.0), density=True)
             histograms.append(hist)
-        embedding = np.concatenate(histograms)
-        if embedding.size < components:
-            embedding = np.pad(embedding, (0, components - embedding.size))
-        elif embedding.size > components:
-            embedding = embedding[:components]
-        embedding = embedding.reshape(1, -1)
-        embedding /= np.linalg.norm(embedding, axis=1, keepdims=True) + 1e-8
-        return embedding
+        features = np.concatenate([*stats, *histograms])
+        features = features / (np.linalg.norm(features) + 1e-8)
+        if features.size < target_dim:
+            features = np.pad(features, (0, target_dim - features.size))
+        else:
+            features = features[:target_dim]
+        return features.astype(np.float32)[None, :]
+
+    def _mark_fallback(self, reason: Exception) -> None:
+        self._fallback = True
+        LOGGER.warning(
+            "Falling back to statistical embeddings", extra={"encoder": self.__class__.__name__, "error": str(reason)}
+        )

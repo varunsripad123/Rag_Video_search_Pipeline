@@ -6,7 +6,15 @@ import logging.config
 from pathlib import Path
 from typing import Optional
 
-from pythonjsonlogger import jsonlogger
+try:  # pragma: no cover - optional dependency fallback
+    from pythonjsonlogger import jsonlogger
+except ImportError:  # pragma: no cover
+    class _FallbackJsonFormatter(logging.Formatter):
+        def add_fields(self, log_record, record, message_dict):
+            log_record.update(message_dict)
+
+    class jsonlogger:  # type: ignore
+        JsonFormatter = _FallbackJsonFormatter
 
 from src.config import AppConfig
 

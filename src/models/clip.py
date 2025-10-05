@@ -1,7 +1,6 @@
 """CLIP encoder wrapper."""
 from __future__ import annotations
 
-import logging
 from typing import Iterable, List
 
 import numpy as np
@@ -9,9 +8,6 @@ import torch
 from transformers import CLIPModel, CLIPProcessor
 
 from .base import BaseEncoder
-
-
-LOGGER = logging.getLogger(__name__)
 
 
 class CLIPEncoder(BaseEncoder):
@@ -28,16 +24,13 @@ class CLIPEncoder(BaseEncoder):
             self.model = CLIPModel.from_pretrained(self.model_name).to(self.device)
             self.processor = CLIPProcessor.from_pretrained(self.model_name)
             self.model.eval()
-        except Exception as exc:  # noqa: BLE001
-            LOGGER.warning("CLIP model unavailable, using fallback encoder", exc_info=exc)
-            self.model = None
-            self.processor = None
-            self._use_fallback = True
+        except Exception as exc:  # pragma: no cover - exercised in production environments
+            self._mark_fallback(exc)
 
     @torch.no_grad()
     def encode(self, frames: Iterable[np.ndarray]) -> np.ndarray:
-        if self._use_fallback or self.model is None or self.processor is None:
-            return self._fallback_encode(list(frames))
+        if self._fallback or self.model is None or self.processor is None:
+            return self._fallback_encode(frames, target_dim=512)
         pil_images: List[np.ndarray] = [frame[:, :, ::-1] for frame in frames]
         inputs = self.processor(images=pil_images, return_tensors="pt", padding=True)
         inputs = {k: v.to(self.device) for k, v in inputs.items()}

@@ -1,6 +1,7 @@
 """Neural video codec components."""
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Tuple
@@ -68,12 +69,14 @@ class ResidualCompressor(nn.Module):
         return reconstructed, latent
 
 
-@dataclass
-class EncodedChunk:
+@dataclass(slots=True)
+class EncodedArtifact:
     """Encoded chunk artifact."""
 
-    path: Path
-    size_bytes: int
+    token_path: Path
+    sideinfo_path: Path
+    latent_shape: Tuple[int, ...]
+    entropy_scale: Iterable[float] | None
 
 
 class NeuralVideoCodec:
@@ -90,31 +93,50 @@ class NeuralVideoCodec:
             else None
         )
 
-    def encode(self, frames: np.ndarray, output_path: Path) -> EncodedChunk:
+    def encode(self, frames: np.ndarray, output_dir: Path, stem: str) -> EncodedArtifact:
         """Encode frames and persist compressed representation."""
 
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        tensor = torch.from_numpy(frames).permute(0, 3, 1, 2).unsqueeze(0).float() / 255.0
+        output_dir.mkdir(parents=True, exist_ok=True)
+        tokens_path = output_dir / f"{stem}.npz"
+        sideinfo_path = output_dir / f"{stem}.json"
+
+        tensor = torch.from_numpy(frames).permute(3, 0, 1, 2).unsqueeze(0).float() / 255.0
         tensor = tensor.to(self.device)
 
-        if self.motion is not None:
-            ref = tensor[:, :, :-1]
-            target = tensor[:, :, 1:]
-            flow = self.motion(ref.reshape(-1, *ref.shape[2:]), target.reshape(-1, *target.shape[2:]))
+        entropy_scale = None
+        if self.motion is not None and tensor.shape[2] > 1:
+            ref = tensor[:, :, :-1, :, :]
+            target = tensor[:, :, 1:, :, :]
+            ref_flat = ref.permute(0, 2, 1, 3, 4).reshape(-1, ref.shape[1], ref.shape[3], ref.shape[4])
+            target_flat = target.permute(0, 2, 1, 3, 4).reshape(-1, target.shape[1], target.shape[3], target.shape[4])
+            flow = self.motion(ref_flat, target_flat)
             LOGGER.debug("Motion flow magnitude", extra={"mean": float(flow.abs().mean())})
 
         reconstructed, latent = self.compressor(tensor)
         if self.bottleneck is not None:
             latent, scale = self.bottleneck(latent)
-            LOGGER.debug("Entropy bottleneck scale", extra={"scale": scale.detach().cpu().tolist()})
+            entropy_scale = scale.detach().cpu().tolist()
+            LOGGER.debug("Entropy bottleneck scale", extra={"scale": entropy_scale})
 
-        np.save(output_path, latent.detach().cpu().numpy())
-        size_bytes = output_path.stat().st_size
-        return EncodedChunk(path=output_path, size_bytes=size_bytes)
+        latent_np = latent.detach().cpu().squeeze(0).numpy()
+        np.savez_compressed(tokens_path, latent=latent_np)
 
-    def decode(self, encoded_path: Path) -> np.ndarray:
+        sideinfo = {"latent_shape": latent_np.shape, "entropy_scale": entropy_scale}
+        sideinfo_path.write_text(json.dumps(sideinfo, indent=2), encoding="utf-8")
+
+        return EncodedArtifact(
+            token_path=tokens_path,
+            sideinfo_path=sideinfo_path,
+            latent_shape=latent_np.shape,
+            entropy_scale=entropy_scale,
+        )
+
+    def decode(self, artifact: EncodedArtifact | Path) -> np.ndarray:
         """Decode latent representation back to video frames."""
 
-        latent = torch.from_numpy(np.load(encoded_path)).to(self.device)
-        reconstruction = self.compressor.decoder(latent).squeeze(0).permute(0, 2, 3, 1)
-        return (reconstruction.detach().cpu().numpy() * 255.0).astype(np.uint8)
+        token_path = artifact.token_path if isinstance(artifact, EncodedArtifact) else artifact
+        latent_data = np.load(token_path)
+        latent = torch.from_numpy(latent_data["latent"]).unsqueeze(0).to(self.device)
+        reconstruction = self.compressor.decoder(latent).squeeze(0).permute(1, 2, 3, 0)
+        frames = (reconstruction.detach().cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
+        return frames

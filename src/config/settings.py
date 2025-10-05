@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import json
+import json
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, Optional
 
 import yaml
 from pydantic import BaseModel, Field, ConfigDict, model_validator
@@ -16,6 +17,9 @@ class ProjectSettings(BaseModel):
 
     name: str = "RAG Video Search"
     environment: str = "development"
+    default_tenant_id: str = "tenant_default"
+    default_codebook_id: str = "cb_default"
+    default_model_id: str = "video_encoder_v1"
 
 
 class DataSettings(BaseModel):
@@ -27,8 +31,6 @@ class DataSettings(BaseModel):
     frame_rate: int = 2
     min_frames: int = 8
     batch_size: int = 4
-    default_tenant: str = "tenant-default"
-    stream_prefix: str = "stream"
 
     @model_validator(mode="before")
     def _expand_paths(cls, values: Dict[str, Any]) -> Dict[str, Any]:
@@ -47,20 +49,17 @@ class ModelSettings(BaseModel):
     clip_model_name: str = "openai/clip-vit-base-patch32"
     videomae_model_name: str = "MCG-NJU/videomae-base"
     videoswin_model_name: str = "microsoft/videoswin-base"
+    generator_model_name: str = "microsoft/phi-2"
 
 
 class CodecSettings(BaseModel):
     """Neural codec hyper-parameters."""
-
-    model_config = ConfigDict(protected_namespaces=())
 
     enable_motion_estimation: bool = True
     entropy_bottleneck: bool = True
     quantization_bits: int = Field(ge=4, le=16, default=8)
     residual_channels: int = 128
     latent_channels: int = 256
-    codebook_id: str = "cb_v1"
-    model_id: str = "video_encoder_v1"
 
 
 class IndexSettings(BaseModel):
@@ -93,7 +92,7 @@ class APISettings(BaseModel):
 class SecuritySettings(BaseModel):
     """Authentication and authorization configuration."""
 
-    api_keys: List[str] = Field(default_factory=lambda: ["changeme"])
+    api_keys: Iterable[str] = Field(default_factory=lambda: ("changeme",))
     rate_limit_per_minute: int = 120
     rate_limit_burst: int = 40
     redis_url: Optional[str] = None

@@ -1,7 +1,8 @@
 """Answer generation module."""
 from __future__ import annotations
 
-from typing import Sequence
+from functools import lru_cache
+from typing import Sequence, Tuple
 
 import numpy as np
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -11,13 +12,19 @@ from src.utils.logging import get_logger
 LOGGER = get_logger(__name__)
 
 
+@lru_cache(maxsize=2)
+def _load_generator(model_name: str) -> Tuple[AutoTokenizer, AutoModelForCausalLM]:
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name)
+    model.eval()
+    return tokenizer, model
+
+
 def generate_answer(prompt: str, context: Sequence[str], model_name: str = "microsoft/phi-2") -> str:
     """Generate a textual answer given retrieved context."""
 
     try:
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModelForCausalLM.from_pretrained(model_name)
-        model.eval()
+        tokenizer, model = _load_generator(model_name)
         system_prompt = "You are an expert video search assistant. Use the context to answer succinctly."
         context_block = "\n".join(context)
         full_prompt = f"{system_prompt}\nContext:\n{context_block}\nQuestion: {prompt}\nAnswer:"
