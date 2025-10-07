@@ -63,7 +63,6 @@ async function loadStats() {
   }
 }
 
-<<<<<<< HEAD
 function formatBytes(bytes) {
   if (bytes === 0) return '0 Bytes';
   const k = 1024;
@@ -90,160 +89,6 @@ async function search(query) {
   const payload = {
     query,
     history: [],
-=======
-function trimHistory() {
-  const maxEntries = MAX_HISTORY_MESSAGES * 2;
-  if (conversationHistory.length > maxEntries) {
-    conversationHistory.splice(0, conversationHistory.length - maxEntries);
-  }
-}
-
-function updateStatus(state, message) {
-  statusIndicator.textContent = message;
-  statusIndicator.classList.remove('status-ok', 'status-loading');
-  if (state === 'ok') {
-    statusIndicator.classList.add('status-ok');
-  } else if (state === 'loading') {
-    statusIndicator.classList.add('status-loading');
-  }
-}
-
-async function checkConnection() {
-  const baseUrl = getApiBase();
-  if (!baseUrl) {
-    updateStatus('error', 'Enter a valid API endpoint URL.');
-    return;
-  }
-  updateStatus('loading', 'Checking connection…');
-  checkConnectionButton.disabled = true;
-  try {
-    const response = await fetch(`${baseUrl}/health`, {
-      headers: {
-        'x-api-key': getApiKey() || '',
-      },
-    });
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text || response.statusText);
-    }
-    const data = await response.json();
-    const environment = data.environment ? ` (${data.environment})` : '';
-    updateStatus('ok', `Connected${environment}`);
-  } catch (error) {
-    console.error('Health check failed', error);
-    updateStatus('error', `Connection failed: ${error.message}`);
-  } finally {
-    checkConnectionButton.disabled = false;
-  }
-}
-
-async function loadPreview(manifestId, videoElement, button) {
-  const baseUrl = getApiBase();
-  const apiKey = getApiKey();
-  if (!baseUrl) {
-    addMessage('System', 'Set an API endpoint before loading previews.');
-    return;
-  }
-  if (!apiKey) {
-    addMessage('System', 'Provide an API key to request previews.');
-    return;
-  }
-  button.disabled = true;
-  const previousLabel = button.textContent;
-  button.textContent = 'Loading…';
-  try {
-    const response = await fetch(`${baseUrl}/decode`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-      },
-      body: JSON.stringify({ manifest_id: manifestId, quality: 'preview' }),
-    });
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text || response.statusText);
-    }
-    const blob = await response.blob();
-    const objectUrl = URL.createObjectURL(blob);
-    const previousUrl = videoElement.dataset.objectUrl;
-    if (previousUrl) {
-      URL.revokeObjectURL(previousUrl);
-      activeObjectUrls.delete(previousUrl);
-    }
-    videoElement.dataset.objectUrl = objectUrl;
-    activeObjectUrls.add(objectUrl);
-    videoElement.src = objectUrl;
-    videoElement.load();
-    button.textContent = 'Reload preview';
-  } catch (error) {
-    console.error('Preview failed', error);
-    addMessage('System', `Preview error: ${error.message}`);
-    button.textContent = previousLabel;
-  } finally {
-    button.disabled = false;
-  }
-}
-
-function renderResults(results) {
-  clearObjectUrls();
-  resultsDiv.innerHTML = '';
-  if (!results.length) {
-    const empty = document.createElement('p');
-    empty.textContent = 'No results returned for this query.';
-    resultsDiv.appendChild(empty);
-    return;
-  }
-  results.forEach((item) => {
-    const container = document.createElement('div');
-    container.classList.add('result-item');
-
-    const heading = document.createElement('h3');
-    heading.textContent = `${item.label} — score ${item.score.toFixed(3)}`;
-    container.appendChild(heading);
-
-    const meta = document.createElement('div');
-    meta.classList.add('meta');
-    const truncatedId =
-      item.manifest_id.length > 12 ? `${item.manifest_id.slice(0, 8)}…` : item.manifest_id;
-    meta.innerHTML = `
-      <span>Segment: ${item.start_time.toFixed(2)}s → ${item.end_time.toFixed(2)}s</span>
-      <span title="${item.manifest_id}">Manifest ID: ${truncatedId}</span>
-    `;
-    container.appendChild(meta);
-
-    const previewButton = document.createElement('button');
-    previewButton.type = 'button';
-    previewButton.textContent = 'Load preview';
-
-    const video = document.createElement('video');
-    video.controls = true;
-    video.preload = 'none';
-
-    previewButton.addEventListener('click', () => loadPreview(item.manifest_id, video, previewButton));
-
-    container.appendChild(previewButton);
-    container.appendChild(video);
-    resultsDiv.appendChild(container);
-  });
-}
-
-async function search(query) {
-  const baseUrl = getApiBase();
-  const apiKey = getApiKey();
-  if (!baseUrl) {
-    addMessage('System', 'Set an API endpoint before searching.');
-    return;
-  }
-  if (!apiKey) {
-    addMessage('System', 'Provide an API key to perform searches.');
-    return;
-  }
-
-  const payload = {
-    query,
-    history: conversationHistory.slice(-MAX_HISTORY_MESSAGES * 2),
->>>>>>> 67ff2b56a350d48f470d344f346c58d5a74f096c
     options: {
       expand: false,
       top_k: topK,
@@ -270,7 +115,6 @@ async function search(query) {
     }
 
     const data = await response.json();
-<<<<<<< HEAD
     const endTime = performance.now();
     const duration = Math.round(endTime - startTime);
     
@@ -286,19 +130,6 @@ async function search(query) {
     isSearching = false;
     loadingState.style.display = 'none';
     sendButton.disabled = false;
-=======
-    addMessage('Assistant', data.answer);
-    renderResults(data.results || []);
-    conversationHistory.push({ role: 'user', content: query });
-    conversationHistory.push({ role: 'assistant', content: data.answer });
-    trimHistory();
-  } catch (error) {
-    console.error('Search failed', error);
-    addMessage('System', `Error: ${error.message}`);
-  } finally {
-    sendButton.disabled = false;
-    queryInput.disabled = false;
->>>>>>> 67ff2b56a350d48f470d344f346c58d5a74f096c
   }
 }
 
@@ -438,7 +269,6 @@ sendButton.addEventListener('click', () => {
 });
 
 queryInput.addEventListener('keypress', (event) => {
-<<<<<<< HEAD
   if (event.key === 'Enter' && !isSearching) {
     const query = queryInput.value.trim();
     if (query) search(query);
@@ -471,26 +301,3 @@ async function downloadVideo(manifestId, filename) {
 
 // Load stats on page load
 loadStats();
-=======
-  if (event.key === 'Enter') {
-    event.preventDefault();
-    sendButton.click();
-  }
-});
-
-checkConnectionButton.addEventListener('click', checkConnection);
-apiUrlInput.addEventListener('change', () => {
-  persistSettings();
-  updateStatus('idle', 'Settings updated — test the connection.');
-});
-apiKeyInput.addEventListener('change', persistSettings);
-
-window.addEventListener('beforeunload', clearObjectUrls);
-
-loadSettings();
-
-// Automatically test the connection if the user already configured the API URL.
-if (apiUrlInput.value) {
-  checkConnection();
-}
->>>>>>> 67ff2b56a350d48f470d344f346c58d5a74f096c
