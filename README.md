@@ -1,4 +1,4 @@
-# RAG Video Search Pipeline
+# RAG Video Search Pipeline (Zero-Copy AI Edition)
 
 A production-ready Retrieval-Augmented Generation (RAG) system for video search.
 It ingests labeled videos, chunks and encodes them with neural codecs, extracts
@@ -6,12 +6,18 @@ multi-modal embeddings, builds FAISS vector indices, and serves a conversational
 search API with a lightweight web UI. The project ships with observability,
 security, deployment manifests, and CI/CD automation.
 
+**🎯 NEW: Zero-Copy AI Auto-Labeling** — Automatically detect objects (YOLOv8), 
+recognize actions (VideoMAE), generate captions (BLIP-2), and transcribe audio 
+(Whisper) from unlabeled video archives. See [AUTO_LABELING_GUIDE.md](AUTO_LABELING_GUIDE.md).
+
 ## Features
 
 - **Dataset ingestion** for folder-based labeled video corpora.
 - **Neural chunking** with configurable duration, frame-rate, and motion-aware
   codec optimized for storage and search.
 - **Multi-modal embeddings** using CLIP, VideoMAE, and Video Swin transformers.
+- **🆕 Auto-labeling** with YOLOv8, BLIP-2, Whisper, and VideoMAE for automated 
+  object detection, caption generation, audio transcription, and action recognition.
 - **Vector indexing** with FAISS for millisecond similarity search.
 - **Conversational retrieval** with query expansion, history awareness, and
   streaming responses via FastAPI.
@@ -125,7 +131,11 @@ The pipeline runner orchestrates chunking, embedding extraction, and index
 construction:
 
 ```bash
+# Basic pipeline (without auto-labeling)
 python run_pipeline.py --config config/pipeline.yaml
+
+# 🆕 With auto-labeling (YOLO, BLIP-2, Whisper)
+python run_pipeline.py --enable-labeling
 ```
 
 This will:
@@ -133,7 +143,21 @@ This will:
 1. Extract video chunks and metadata to `processed/chunks/`.
 2. Encode chunks with the neural codec for efficient storage.
 3. Generate embeddings via CLIP, VideoMAE, and Video Swin.
-4. Build or refresh the FAISS index at `data/index/faiss.index`.
+4. **🆕 (Optional) Auto-label chunks** with object detection, captions, and audio transcription.
+5. Build or refresh the FAISS index at `data/index/faiss.index`.
+
+**New Auto-Labeling Output:**
+```json
+{
+  "objects": ["person", "car", "tree"],
+  "action": "walking",
+  "caption": "a person walking near a car",
+  "audio_text": "background music",
+  "confidence": 0.84
+}
+```
+
+See [AUTO_LABELING_GUIDE.md](AUTO_LABELING_GUIDE.md) for details.
 
 ### Launching the API
 

@@ -1,0 +1,31 @@
+# Exclude large files from Railway deployment
+
+# Video files (too large)
+ground_clips_mp4/
+*.mp4
+*.avi
+*.mov
+
+# Processed data (regenerate on server)
+data/processed/chunks/
+
+# Cache
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Logs
+logs/
+*.log
+
+# Environment
+.env
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Git
+.git/

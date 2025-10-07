@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, List
+from typing import Any, Iterable, List, Optional
 
 
 @dataclass
@@ -29,12 +29,17 @@ class ManifestEntry:
     hash: str
     tags: list[str]
     quality_stats: dict[str, float]
+    # Auto-labeling results (optional, added for Zero-Copy AI features)
+    auto_labels: Optional[dict[str, Any]] = field(default=None)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ManifestEntry":
+        # Handle backward compatibility - old manifests won't have auto_labels
+        if "auto_labels" not in data:
+            data["auto_labels"] = None
         return cls(**data)
 
 

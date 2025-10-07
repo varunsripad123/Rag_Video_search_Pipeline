@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Memory Search - AI-Powered Video Search</title>
+    <link rel="stylesheet" href="styles_pro.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="container">
+            <div class="nav-brand">
+                <svg class="logo-icon" width="32" height="32" viewBox="0 0 32 32" fill="none">
+                    <rect width="32" height="32" rx="8" fill="url(#gradient)"/>
+                    <path d="M16 8L22 12V20L16 24L10 20V12L16 8Z" stroke="white" stroke-width="2" fill="none"/>
+                    <defs>
+                        <linearGradient id="gradient" x1="0" y1="0" x2="32" y2="32">
+                            <stop offset="0%" stop-color="#667eea"/>
+                            <stop offset="100%" stop-color="#764ba2"/>
+                        </linearGradient>
+                    </defs>
+                </svg>
+                <span class="brand-name">Memory Search</span>
+            </div>
+            <div class="nav-links">
+                <a href="#features">Features</a>
+                <a href="#pricing">Pricing</a>
+                <a href="#docs">Docs</a>
+                <button class="btn-secondary">Sign In</button>
+                <button class="btn-primary">Get Started</button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="container">
+            <div class="hero-content">
+                <div class="badge">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M8 2L10 6L14 6.5L11 9.5L11.5 14L8 12L4.5 14L5 9.5L2 6.5L6 6L8 2Z" fill="currentColor"/>
+                    </svg>
+                    <span>AI-Powered Video Intelligence</span>
+                </div>
+                <h1 class="hero-title">
+                    Give Your Videos<br/>
+                    <span class="gradient-text">A Memory</span>
+                </h1>
+                <p class="hero-subtitle">
+                    Search 10,000 videos in 100ms. Find any moment instantly.<br/>
+                    No manual tagging. No endless browsing. Just instant recall.
+                </p>
+                <div class="hero-cta">
+                    <button class="btn-large btn-primary">
+                        Start Free Trial
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                            <path d="M7 3L14 10L7 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                    </button>
+                    <button class="btn-large btn-secondary">
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                            <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="2"/>
+                            <path d="M8 7L13 10L8 13V7Z" fill="currentColor"/>
+                        </svg>
+                        Watch Demo
+                    </button>
+                </div>
+                <div class="hero-stats">
+                    <div class="stat">
+                        <div class="stat-value">100ms</div>
+                        <div class="stat-label">Search Speed</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">10,000+</div>
+                        <div class="stat-label">Videos Indexed</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">99.9%</div>
+                        <div class="stat-label">Uptime</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Search Demo Section -->
+    <section class="search-demo">
+        <div class="container">
+            <div class="demo-card">
+                <div class="demo-header">
+                    <h2>Try It Live</h2>
+                    <p>Search our demo library of 200 action videos</p>
+                </div>
+                
+                <div class="search-container">
+                    <div class="search-box">
+                        <svg class="search-icon" width="24" height="24" viewBox="0 0 24 24" fill="none">
+                            <circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/>
+                            <path d="M21 21L16.5 16.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                        <input 
+                            type="text" 
+                            id="searchInput" 
+                            placeholder="Try: 'basketball dunk' or 'person running'"
+                            autocomplete="off"
+                        />
+                        <button class="search-btn" id="searchBtn">
+                            <span>Search</span>
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                <path d="M2 8H14M14 8L9 3M14 8L9 13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                        </button>
+                    </div>
+                    
+                    <div class="search-suggestions">
+                        <span class="suggestion-label">Try:</span>
+                        <button class="suggestion-chip" data-query="basketball dunk">🏀 Basketball</button>
+                        <button class="suggestion-chip" data-query="person running">🏃 Running</button>
+                        <button class="suggestion-chip" data-query="playing guitar">🎸 Guitar</button>
+                        <button class="suggestion-chip" data-query="swimming">🏊 Swimming</button>
+                    </div>
+                </div>
+
+                <!-- Loading State -->
+                <div class="loading-state" id="loadingState" style="display: none;">
+                    <div class="spinner"></div>
+                    <p>Searching through 10,000 videos...</p>
+                </div>
+
+                <!-- Results -->
+                <div class="results-section" id="resultsSection" style="display: none;">
+                    <div class="results-header">
+                        <div class="results-info">
+                            <span class="results-count" id="resultCount">0 results</span>
+                            <span class="results-time">in <span id="searchTime">0</span>ms</span>
+                        </div>
+                        <div class="results-actions">
+                            <button class="icon-btn">
+                                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                    <rect x="3" y="3" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.5"/>
+                                    <rect x="11" y="3" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.5"/>
+                                    <rect x="3" y="11" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.5"/>
+                                    <rect x="11" y="11" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.5"/>
+                                </svg>
+                            </button>
+                            <button class="icon-btn">
+                                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                    <path d="M3 6H17M3 10H17M3 14H17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="results-grid" id="resultsGrid"></div>
+                </div>
+
+                <!-- Settings -->
+                <div class="settings-panel">
+                    <button class="settings-toggle" id="settingsToggle">
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                            <circle cx="10" cy="10" r="3" stroke="currentColor" stroke-width="1.5"/>
+                            <path d="M10 2V4M10 16V18M18 10H16M4 10H2M15.5 4.5L14 6M6 14L4.5 15.5M15.5 15.5L14 14M6 6L4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                        </svg>
+                        <span>Settings</span>
+                    </button>
+                    
+                    <div class="settings-content" id="settingsContent" style="display: none;">
+                        <div class="setting-group">
+                            <label>API URL</label>
+                            <input type="text" id="apiUrl" value="http://localhost:8081" />
+                        </div>
+                        <div class="setting-group">
+                            <label>API Key</label>
+                            <input type="password" id="apiKey" value="changeme" />
+                        </div>
+                        <div class="setting-group">
+                            <label>Results</label>
+                            <input type="number" id="topK" value="6" min="1" max="20" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features" id="features">
+        <div class="container">
+            <div class="section-header">
+                <h2>Why Memory Search?</h2>
+                <p>The fastest way to find anything in your video library</p>
+            </div>
+            
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">⚡</div>
+                    <h3>Lightning Fast</h3>
+                    <p>Search 10,000 videos in under 100ms. 1,000x faster than manual browsing.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">🧠</div>
+                    <h3>Semantic Search</h3>
+                    <p>Find by meaning, not just tags. "Basketball dunk" finds dunks, even without labels.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">🎯</div>
+                    <h3>Precise Moments</h3>
+                    <p>Get exact 2-second clips, not entire videos. Save 98% bandwidth.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">🤖</div>
+                    <h3>No Manual Tagging</h3>
+                    <p>AI automatically understands your content. Zero manual work required.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">🔒</div>
+                    <h3>Secure & Private</h3>
+                    <p>Your videos stay in your cloud. We only store tiny embeddings.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">📈</div>
+                    <h3>Gets Smarter</h3>
+                    <p>Fine-tune on your content. Accuracy improves from 30% to 60%.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta-section">
+        <div class="container">
+            <div class="cta-card">
+                <h2>Ready to give your videos a memory?</h2>
+                <p>Start searching 10,000 videos in 100ms. No credit card required.</p>
+                <button class="btn-large btn-primary">
+                    Start Free Trial
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M7 3L14 10L7 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <svg class="logo-icon" width="32" height="32" viewBox="0 0 32 32" fill="none">
+                        <rect width="32" height="32" rx="8" fill="url(#gradient2)"/>
+                        <path d="M16 8L22 12V20L16 24L10 20V12L16 8Z" stroke="white" stroke-width="2" fill="none"/>
+                        <defs>
+                            <linearGradient id="gradient2" x1="0" y1="0" x2="32" y2="32">
+                                <stop offset="0%" stop-color="#667eea"/>
+                                <stop offset="100%" stop-color="#764ba2"/>
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                    <span class="brand-name">Memory Search</span>
+                </div>
+                <div class="footer-links">
+                    <a href="#features">Features</a>
+                    <a href="#pricing">Pricing</a>
+                    <a href="#docs">Documentation</a>
+                    <a href="#api">API</a>
+                    <a href="#support">Support</a>
+                </div>
+                <div class="footer-copy">
+                    © 2025 Memory Search. All rights reserved.
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="app_pro.js"></script>
+</body>
+</html>

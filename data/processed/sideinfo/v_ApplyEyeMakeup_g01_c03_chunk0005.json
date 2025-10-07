@@ -1,0 +1,9 @@
+{
+  "codebook_id": "your_codebook",
+  "layout": "tiles16x16",
+  "dims": [
+    96,
+    128
+  ],
+  "time_stride": 9
+}

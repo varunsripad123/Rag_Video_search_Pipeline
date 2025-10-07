@@ -19,19 +19,47 @@ from fastapi import (
     FastAPI,
     File,
     HTTPException,
+    Query,
     UploadFile,
     status,
 )
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-from transformers import CLIPModel, CLIPTokenizer
+
+# Defer transformers import to avoid circular import issues
+CLIPModel = None
+CLIPTokenizer = None
+
+def _try_import_clip():
+    """Try to import CLIP at runtime to avoid circular imports."""
+    global CLIPModel, CLIPTokenizer
+    if CLIPModel is not None:
+        return True
+    try:
+        # Try direct import from transformers.models.clip
+        from transformers.models.clip import CLIPModel as _CLIPModel, CLIPTokenizer as _CLIPTokenizer
+        CLIPModel = _CLIPModel
+        CLIPTokenizer = _CLIPTokenizer
+        return True
+    except Exception as e1:
+        try:
+            # Fallback: Try standard import
+            from transformers import CLIPModel as _CLIPModel, CLIPTokenizer as _CLIPTokenizer
+            CLIPModel = _CLIPModel
+            CLIPTokenizer = _CLIPTokenizer
+            return True
+        except Exception as e2:
+            LOGGER.debug(f"Could not import CLIP: {e1}, {e2}")
+            return False
 
 from src.api.auth import verify_api_key
 from src.api.models import (
     AnomalyAggregateRequest,
     AnomalyAggregateResponse,
     AnomalyPoint,
+    AutoLabelRequest,
+    AutoLabelResponse,
     DecodeRequest,
     FeedbackRequest,
     IngestChunkResponse,
@@ -46,15 +74,52 @@ from src.api.models import (
 )
 from src.api.rate_limit import enforce_rate_limit
 from src.config import AppConfig, load_config
-from src.core.codecs import NeuralVideoCodec
-from src.core.embedding import EmbeddingExtractor
-from src.core.generation import generate_answer
-from src.core.pipeline import build_manifest_entry
 from src.core.retrieval import Retriever, expand_query
 from src.utils import REQUEST_COUNTER, REQUEST_LATENCY, configure_logging
 from src.utils.io import ManifestEntry, read_manifest, write_manifest
 from src.utils.logging import get_logger
 from src.utils.video import VideoChunk, load_video_frames, probe_fps, write_video
+
+# Defer these imports to avoid loading heavy models at module level
+NeuralVideoCodec = None
+EmbeddingExtractor = None
+build_manifest_entry = None
+generate_answer = None
+
+def _try_import_pipeline_components():
+    """Lazy import of pipeline components (only needed for ingestion)."""
+    global NeuralVideoCodec, EmbeddingExtractor, build_manifest_entry, generate_answer
+    if NeuralVideoCodec is not None:
+        return True
+    try:
+        from src.core.codecs import NeuralVideoCodec as _NeuralVideoCodec
+        from src.core.embedding import EmbeddingExtractor as _EmbeddingExtractor
+        from src.core.pipeline import build_manifest_entry as _build_manifest_entry
+        from src.core.generation import generate_answer as _generate_answer
+        NeuralVideoCodec = _NeuralVideoCodec
+        EmbeddingExtractor = _EmbeddingExtractor
+        build_manifest_entry = _build_manifest_entry
+        generate_answer = _generate_answer
+        return True
+    except Exception as e:
+        LOGGER.error(f"Failed to import pipeline components: {e}")
+        return False
+
+def _fallback_generate_answer(query: str, context: list) -> str:
+    """Simple answer generation fallback when LLM is not available."""
+    if not context:
+        return "No matching videos found."
+    
+    # Simple template-based answer
+    n_results = len(context)
+    if n_results == 1:
+        return f"Found 1 relevant video: {context[0]}"
+    else:
+        top_results = context[:3]
+        answer = f"Found {n_results} relevant videos. Top matches:\n"
+        for i, ctx in enumerate(top_results, 1):
+            answer += f"{i}. {ctx}\n"
+        return answer.strip()
 
 LOGGER = get_logger(__name__)
 
@@ -66,44 +131,100 @@ class QueryEmbedder:
     model: Optional[CLIPModel]
     tokenizer: Optional[CLIPTokenizer]
     device: torch.device
+    target_dim: int = 512  # Match the index dimension (512 CLIP)
     fallback_dim: int = 512
 
     @classmethod
-    def from_config(cls, config: AppConfig) -> "QueryEmbedder":
+    def from_config(cls, config: AppConfig, target_dim: int = 512) -> "QueryEmbedder":
         device = torch.device(
             "cuda" if config.models.device == "cuda" and torch.cuda.is_available() else "cpu"
         )
+        
+        # Try to load CLIP (with better error handling)
         try:
-            model = CLIPModel.from_pretrained(config.models.clip_model_name).to(device)
-            tokenizer = CLIPTokenizer.from_pretrained(config.models.clip_model_name)
-            model.eval()
-            LOGGER.info("Loaded CLIP text encoder", extra={"device": str(device)})
-            return cls(model=model, tokenizer=tokenizer, device=device)
-        except Exception as exc:  # noqa: BLE001
-            LOGGER.warning("CLIP model unavailable, falling back to hashed text embeddings", exc_info=exc)
-            return cls(model=None, tokenizer=None, device=device)
+            if _try_import_clip():
+                import os
+                
+                # Get HF token from environment
+                token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+                
+                LOGGER.info("Attempting to load CLIP model...")
+                model = CLIPModel.from_pretrained(
+                    config.models.clip_model_name,
+                    token=token
+                )
+                model = model.to(device)
+                model.eval()
+                tokenizer = CLIPTokenizer.from_pretrained(
+                    config.models.clip_model_name,
+                    token=token
+                )
+                LOGGER.info("✅ CLIP model loaded successfully!")
+                return cls(model=model, tokenizer=tokenizer, device=device, target_dim=target_dim)
+        except Exception as e:
+            LOGGER.warning(f"Failed to load CLIP: {e}")
+        
+        # Fallback: Use basic embeddings
+        LOGGER.warning("⚠️  Using fallback text embeddings (reduced search quality)")
+        LOGGER.warning("   To improve: pip install --upgrade transformers")
+        return cls(model=None, tokenizer=None, device=device, target_dim=target_dim)
 
     def embed(self, text: str) -> np.ndarray:
         if self.model is None or self.tokenizer is None:
-            return self._fallback_embed(text)
-        tokens = self.tokenizer(text, return_tensors="pt", padding=True)
-        tokens = {k: v.to(self.device) for k, v in tokens.items()}
-        with torch.no_grad():
-            features = self.model.get_text_features(**tokens)
-        embedding = features.cpu().numpy()
-        embedding /= np.linalg.norm(embedding, axis=1, keepdims=True) + 1e-8
-        return embedding.squeeze(0)
+            embedding = self._fallback_embed(text)
+        else:
+            tokens = self.tokenizer(text, return_tensors="pt", padding=True)
+            tokens = {k: v.to(self.device) for k, v in tokens.items()}
+            with torch.no_grad():
+                features = self.model.get_text_features(**tokens)
+            embedding = features.cpu().numpy()
+            embedding /= np.linalg.norm(embedding, axis=1, keepdims=True) + 1e-8
+            embedding = embedding.squeeze(0)
+        
+        # Pad to target dimension to match the index
+        if embedding.shape[0] < self.target_dim:
+            padding = np.zeros(self.target_dim - embedding.shape[0], dtype=np.float32)
+            embedding = np.concatenate([embedding, padding])
+        elif embedding.shape[0] > self.target_dim:
+            embedding = embedding[:self.target_dim]
+        
+        return embedding
 
     def _fallback_embed(self, text: str) -> np.ndarray:
+        """Better fallback: Use word hashing with TF-IDF-like weighting."""
+        import hashlib
+        
         vector = np.zeros(self.fallback_dim, dtype=np.float32)
-        for idx, byte in enumerate(text.encode("utf-8")):
-            vector[idx % self.fallback_dim] += (byte / 255.0)
+        
+        # Tokenize and process words
+        words = text.lower().split()
+        if not words:
+            words = ['empty']
+        
+        # Use word hashing with position weighting (earlier words matter more)
+        for pos, word in enumerate(words):
+            # Hash word to multiple positions for better distribution
+            for i in range(3):  # Use 3 hash functions
+                hash_val = int(hashlib.md5(f"{word}_{i}".encode()).hexdigest(), 16)
+                idx = hash_val % self.fallback_dim
+                # Weight: earlier words get higher weight, use IDF-like decay
+                weight = 1.0 / (1.0 + pos * 0.1)
+                vector[idx] += weight
+        
+        # Add bigrams for better context
+        for i in range(len(words) - 1):
+            bigram = f"{words[i]}_{words[i+1]}"
+            hash_val = int(hashlib.md5(bigram.encode()).hexdigest(), 16)
+            idx = hash_val % self.fallback_dim
+            vector[idx] += 0.5  # Bigrams get moderate weight
+        
+        # Normalize
         norm = np.linalg.norm(vector) + 1e-8
         return (vector / norm).astype(np.float32)
 
 
-@lru_cache(maxsize=1)
 def get_embedder(config: AppConfig) -> QueryEmbedder:
+    """Create a query embedder from config (no caching due to unhashable config)."""
     return QueryEmbedder.from_config(config)
 
 
@@ -120,6 +241,7 @@ class ApplicationState:
     manifest: List[ManifestEntry] = field(default_factory=list)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     streams: Dict[str, Dict[str, str]] = field(default_factory=dict)
+    auto_labeler: Optional[any] = field(default=None)  # Lazy-loaded on demand
 
     @property
     def embeddings_dir(self) -> Path:
@@ -146,10 +268,12 @@ def build_app() -> FastAPI:
     LOGGER.info("Starting API server", extra={"environment": config.project.environment})
 
     embedder = get_embedder(config)
-    extractor = EmbeddingExtractor(config)
-    extractor.configure_precision()
-    extractor.load()
-    codec = NeuralVideoCodec(config.codec, device=config.models.device)
+    
+    # Don't load extractor and codec for search-only mode (prevents CLIP loading issues)
+    # These are only needed for video ingestion, not for search
+    extractor = None
+    codec = None
+    LOGGER.info("Running in search-only mode (ingestion disabled)")
 
     manifest_path = config.data.processed_dir / "metadata.json"
     manifest: List[ManifestEntry] = []
@@ -199,6 +323,8 @@ def build_app() -> FastAPI:
         api_key: str = Depends(verify_api_key),
     ) -> IngestChunkResponse:
         await enforce_rate_limit(api_key)
+        if state.extractor is None or state.codec is None:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Ingestion disabled (search-only mode)")
         if stream_id not in state.streams:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown stream_id")
         meta = state.streams[stream_id]
@@ -261,17 +387,45 @@ def build_app() -> FastAPI:
         try:
             if state.retriever is None:
                 return SimilarSearchResponse(answer="No indexed media yet.", results=[])
-            query_embedding = state.embedder.embed(payload.query)
+            
+            # Use query expansion for better accuracy
+            from .query_expansion import get_expanded_embedding
+            query_embedding = get_expanded_embedding(payload.query, state.embedder, average=True)
+            
             history_embeddings = [
                 state.embedder.embed(item.content) for item in payload.history[-state.config.api.max_history :]
             ]
             if payload.options.expand and history_embeddings:
                 query_embedding = expand_query(query_embedding, history_embeddings)
-            results = state.retriever.search(query_embedding, top_k=payload.options.top_k)
-            context = [
-                f"{item.label} {item.start_time:.1f}-{item.end_time:.1f}s" for item in results
-            ]
-            answer = generate_answer(payload.query, context)
+            
+            # Search with auto-label filters
+            results = state.retriever.search(
+                query_embedding, 
+                top_k=payload.options.top_k,
+                filter_objects=payload.options.filter_objects,
+                filter_action=payload.options.filter_action,
+                min_confidence=payload.options.min_confidence
+            )
+            
+            # Build context including auto-labels if available
+            context = []
+            for item in results:
+                ctx = f"{item.label} {item.start_time:.1f}-{item.end_time:.1f}s"
+                if item.auto_labels:
+                    # Add caption and objects to context for better answers
+                    caption = item.auto_labels.get('caption', '')
+                    objects = ', '.join(item.auto_labels.get('objects', [])[:3])
+                    if caption:
+                        ctx += f" - {caption}"
+                    elif objects:
+                        ctx += f" - contains: {objects}"
+                context.append(ctx)
+            
+            # Use LLM answer generation if available, otherwise use simple fallback
+            if generate_answer is None:
+                answer = _fallback_generate_answer(payload.query, context)
+            else:
+                answer = generate_answer(payload.query, context)
             response = SimilarSearchResponse(
                 answer=answer,
                 results=[
@@ -282,6 +436,7 @@ def build_app() -> FastAPI:
                         start_time=item.start_time,
                         end_time=item.end_time,
                         asset_url=item.asset_url,
+                        auto_labels=item.auto_labels  # Include auto-labels in response
                     )
                     for item in results
                 ],
@@ -329,6 +484,8 @@ def build_app() -> FastAPI:
     @router.post("/decode")
     async def decode(payload: DecodeRequest, api_key: str = Depends(verify_api_key)) -> StreamingResponse:
         await enforce_rate_limit(api_key)
+        if state.codec is None:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Decode disabled (search-only mode)")
         entry = _find_manifest(state, payload.manifest_id)
         frames = state.codec.decode(Path(entry.token_path))
         if payload.roi is not None:
@@ -368,6 +525,189 @@ def build_app() -> FastAPI:
         await enforce_rate_limit(api_key)
         LOGGER.info("Received feedback", extra={"helpful": payload.helpful})
         return {"status": "accepted"}
+    
+    @router.post("/label/auto", response_model=AutoLabelResponse)
+    async def auto_label_video(
+        payload: AutoLabelRequest, 
+        api_key: str = Depends(verify_api_key)
+    ) -> AutoLabelResponse:
+        """
+        Generate automatic labels for a video chunk using AI models.
+        
+        Uses YOLO for object detection, VideoMAE for action recognition,
+        BLIP-2 for caption generation, and Whisper for audio transcription.
+        """
+        await enforce_rate_limit(api_key)
+        
+        # Find the manifest entry
+        entry = _find_manifest(state, payload.manifest_id)
+        chunk_path = Path(entry.chunk_path)
+        
+        if not chunk_path.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, 
+                detail="Video file not found"
+            )
+        
+        # Initialize auto-labeler if not already done
+        if not hasattr(state, 'auto_labeler') or state.auto_labeler is None:
+            try:
+                from src.core.labeling import AutoLabeler
+                LOGGER.info("Initializing auto-labeler for on-demand labeling")
+                state.auto_labeler = AutoLabeler(state.config)
+                state.auto_labeler.load()
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=f"Auto-labeling service unavailable: {str(e)}"
+                )
+        
+        # Run auto-labeling
+        try:
+            labels = state.auto_labeler.label_video_chunk(
+                chunk_path,
+                frames=None,  # Will load frames automatically
+                include_audio=payload.include_audio
+            )
+            
+            # Update manifest entry with new labels
+            async with state.lock:
+                entry.auto_labels = labels
+                write_manifest(state.manifest_path, state.manifest)
+            
+            # Return response
+            return AutoLabelResponse(
+                manifest_id=payload.manifest_id,
+                objects=labels.get('objects', []),
+                object_counts=labels.get('object_counts', {}),
+                action=labels.get('action', 'unknown'),
+                action_confidence=labels.get('action_confidence', 0.0),
+                caption=labels.get('caption', ''),
+                audio_text=labels.get('audio_text', ''),
+                has_speech=labels.get('has_speech', False),
+                audio_language=labels.get('audio_language', 'unknown'),
+                confidence=labels.get('confidence', 0.0),
+                metadata=labels.get('metadata', {})
+            )
+        
+        except Exception as e:
+            LOGGER.error(f"Auto-labeling failed: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Auto-labeling failed: {str(e)}"
+            )
+    
+    @router.get("/video/{manifest_id}")
+    async def get_original_video(
+        manifest_id: str,
+        api_key: str = Query(...),
+        format: str = Query("mp4", regex="^(mp4|gif|thumbnail)$"),
+        quality: str = Query("medium", regex="^(high|medium|low)$"),
+        context: float = Query(0.0, ge=0, le=30)
+    ) -> StreamingResponse:
+        """
+        Retrieve video segment with flexible options.
+        
+        Args:
+            manifest_id: Unique segment identifier
+            api_key: Authentication key
+            format: Output format (mp4, gif, thumbnail)
+            quality: Video quality (high, medium, low)
+            context: Additional seconds before/after segment (0-30)
+        """
+        # Verify API key
+        if api_key not in state.config.security.api_keys:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
+        
+        entry = _find_manifest(state, manifest_id)
+        chunk_path = Path(entry.chunk_path)
+        
+        if not chunk_path.exists():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Video file not found: {chunk_path}")
+        
+        # If no special processing needed, return original
+        if format == "mp4" and quality == "medium" and context == 0:
+            from fastapi.responses import FileResponse
+            return FileResponse(
+                chunk_path,
+                media_type="video/mp4",
+                filename=chunk_path.name,
+                headers={
+                    "Content-Disposition": f'inline; filename="{chunk_path.name}"',
+                    "Accept-Ranges": "bytes"
+                }
+            )
+        
+        # Extract custom segment
+        from .segment_retrieval import SegmentRetriever
+        
+        start_time = entry.start_time
+        end_time = entry.end_time
+        
+        # Add context if requested
+        if context > 0:
+            start_time, end_time = SegmentRetriever.get_segment_context(
+                chunk_path, start_time, end_time, context
+            )
+        
+        # Extract segment with requested format/quality
+        output_path = SegmentRetriever.extract_segment(
+            chunk_path, start_time, end_time, format, quality
+        )
+        
+        # Determine media type
+        media_types = {
+            "mp4": "video/mp4",
+            "gif": "image/gif",
+            "thumbnail": "image/jpeg"
+        }
+        
+        from fastapi.responses import FileResponse
+        return FileResponse(
+            output_path,
+            media_type=media_types[format],
+            filename=f"{manifest_id}.{format}",
+            headers={
+                "Content-Disposition": f'inline; filename="{manifest_id}.{format}"'
+            }
+        )
+
+    @app.get("/demo")
+    async def demo():
+        """Serve the full demo interface directly."""
+        from fastapi.responses import HTMLResponse, FileResponse
+        try:
+            static_base = Path(__file__).parent.parent.parent / "web" / "static"
+            index_path = static_base / "index.html"
+            if index_path.exists():
+                return FileResponse(index_path, media_type="text/html")
+        except Exception as e:
+            LOGGER.error(f"Failed to load demo page: {e}")
+        return HTMLResponse(content="<h1>Demo page not found</h1>")
+    
+    @app.get("/styles.css")
+    async def styles():
+        from fastapi.responses import FileResponse
+        static_base = Path(__file__).parent.parent.parent / "web" / "static"
+        return FileResponse(static_base / "styles.css", media_type="text/css")
+    
+    @app.get("/app.js")
+    async def appjs():
+        from fastapi.responses import FileResponse
+        static_base = Path(__file__).parent.parent.parent / "web" / "static"
+        return FileResponse(static_base / "app.js", media_type="application/javascript")
+    
+    @app.get("/")
+    async def root():
+        """Redirect to professional UI."""
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="/static/index_pro.html")
+    
+    @app.get("/demo")
+    async def demo_old():
+        """Old demo - redirect to new UI."""
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="/static/index_pro.html")
 
     @app.get("/metrics")
     async def metrics() -> PlainTextResponse:
@@ -377,8 +717,17 @@ def build_app() -> FastAPI:
     app.include_router(router)
 
     static_dir = state.config.frontend.static_dir
+    LOGGER.info(f"Static directory path: {static_dir}")
+    LOGGER.info(f"Static directory exists: {static_dir.exists()}")
+    
     if static_dir.exists():
-        app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
+        try:
+            app.mount("/static", StaticFiles(directory=str(static_dir), html=True), name="static")
+            LOGGER.info(f"Mounted static files at /static from {static_dir}")
+        except Exception as e:
+            LOGGER.error(f"Failed to mount static files: {e}")
+    else:
+        LOGGER.warning(f"Static directory does not exist: {static_dir}")
 
     return app
 

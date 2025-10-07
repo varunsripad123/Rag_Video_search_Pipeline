@@ -1,6 +1,16 @@
-dataset:
-  input_dir: "data/raw_videos"
-  output_dir: "data/processed"
+project:
+  name: "RAG Video Search"
+  environment: "production"
+
+data:
+  root_dir: "ground_clips_mp4"
+  processed_dir: "data/processed"
+  chunk_duration: 2.0
+  frame_rate: 2
+  min_frames: 8
+  batch_size: 4
+  default_tenant: "tenant-default"
+  stream_prefix: "stream"
 
 storage:
   chunks_dir: "data/chunks"
@@ -22,9 +32,10 @@ neural_codec:
   quality_level: 3
   bitrate_target: 1000000
 
-indexing:
+index:
   metric: "cosine"
   index_type: "flat"
+  faiss_index_path: "data/index/faiss.index"
 
 rag:
   retriever:
@@ -41,4 +52,5 @@ api:
   host: "0.0.0.0"
   port: 8000
   workers: 4
-  cors_origins: ["*"]
+  cors_origins:
+    - "*"

@@ -1,4 +1,4 @@
-"""FAISS indexing utilities."""
+"""FAISS indexing utilities for CPU-only use."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -16,23 +16,29 @@ LOGGER = get_logger(__name__)
 
 
 class FAISSIndex:
-    """Wrapper around FAISS index for similarity search."""
+    """Wrapper around FAISS index for similarity search in CPU-only mode."""
 
-    def __init__(self, dim: int, nlist: int, nprobe: int, use_gpu: bool = True):
+    def __init__(self, dim: int, nlist: int, nprobe: int, use_gpu: bool = False):
+        # Ignore GPU options for CPU-only
         self.dim = dim
         description = f"IVF{nlist},Flat"
         self.index = faiss.index_factory(dim, description, faiss.METRIC_INNER_PRODUCT)
-        if use_gpu and faiss.get_num_gpus() > 0:
-            res = faiss.StandardGpuResources()
-            self.index = faiss.index_cpu_to_gpu(res, 0, self.index)
+        # Remove GPU code entirely
+        # if use_gpu and faiss.get_num_gpus() > 0:
+        #     res = faiss.StandardGpuResources()
+        #     self.index = faiss.index_cpu_to_gpu(res, 0, self.index)
         self.nprobe = nprobe
 
     def train(self, embeddings: np.ndarray) -> None:
         LOGGER.info("Training FAISS index", extra={"num_vectors": embeddings.shape[0]})
+        # Ensure float32 for FAISS
+        embeddings = embeddings.astype(np.float32)
         faiss.normalize_L2(embeddings)
         self.index.train(embeddings)
 
     def add(self, embeddings: np.ndarray) -> None:
+        # Ensure float32 for FAISS
+        embeddings = embeddings.astype(np.float32)
         faiss.normalize_L2(embeddings)
         self.index.add(embeddings)
         INDEX_SIZE.set(self.index.ntotal)
@@ -40,8 +46,7 @@ class FAISSIndex:
             self.index.nprobe = self.nprobe
 
     def save(self, path: Path) -> None:
-        cpu_index = faiss.index_gpu_to_cpu(self.index) if isinstance(self.index, faiss.GpuIndex) else self.index
-        faiss.write_index(cpu_index, str(path))
+        faiss.write_index(self.index, str(path))
 
     def load(self, path: Path) -> None:
         index = faiss.read_index(str(path))
@@ -50,18 +55,59 @@ class FAISSIndex:
             self.index.nprobe = self.nprobe
 
     def search(self, queries: np.ndarray, k: int = 5) -> Tuple[np.ndarray, np.ndarray]:
+        # Ensure float32 for FAISS
+        queries = queries.astype(np.float32)
         faiss.normalize_L2(queries)
         distances, indices = self.index.search(queries, k)
         return distances, indices
 
 
 def build_index(config: AppConfig, metadata: List[ManifestEntry]) -> Path:
-    """Build FAISS index from embeddings stored on disk."""
+    """Build FAISS index from embeddings stored on disk with CPU-only support."""
 
     embeddings = []
+    shapes = {}
+    
     for item in metadata:
-        embedding = np.load(item.embedding_path)
+        # Handle both string and Path objects
+        emb_path = Path(item.embedding_path) if isinstance(item.embedding_path, str) else item.embedding_path
+        embedding = np.load(emb_path)
+        
+        # Ensure embedding is 1D
+        if embedding.ndim > 1:
+            embedding = embedding.flatten()
+        
+        # Track shapes for debugging
+        shape_key = embedding.shape[0]
+        if shape_key not in shapes:
+            shapes[shape_key] = []
+        shapes[shape_key].append(str(item.embedding_path))
+        
         embeddings.append(embedding)
+    
+    # Log shape distribution
+    LOGGER.info(f"Embedding shape distribution: {dict((k, len(v)) for k, v in shapes.items())}")
+    
+    # If we have multiple shapes, we need to handle it
+    if len(shapes) > 1:
+        LOGGER.warning(f"Found embeddings with different shapes: {list(shapes.keys())}")
+        # Find the most common shape
+        most_common_shape = max(shapes.keys(), key=lambda k: len(shapes[k]))
+        LOGGER.info(f"Using most common shape: {most_common_shape}")
+        
+        # Filter to only use embeddings with the most common shape
+        filtered_embeddings = []
+        filtered_metadata = []
+        for emb, item in zip(embeddings, metadata):
+            if emb.shape[0] == most_common_shape:
+                filtered_embeddings.append(emb)
+                filtered_metadata.append(item)
+            else:
+                LOGGER.warning(f"Skipping {item.embedding_path} with shape {emb.shape}")
+        
+        embeddings = filtered_embeddings
+        metadata = filtered_metadata
+    
     matrix = np.stack(embeddings)
 
     with track_stage("index_train"):
@@ -69,7 +115,7 @@ def build_index(config: AppConfig, metadata: List[ManifestEntry]) -> Path:
             dim=matrix.shape[1],
             nlist=config.index.nlist,
             nprobe=config.index.nprobe,
-            use_gpu=config.index.use_gpu,
+            use_gpu=False  # explicitly disable GPU
         )
         index.train(matrix)
         index.add(matrix)

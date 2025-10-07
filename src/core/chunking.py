@@ -1,40 +1,20 @@
-"""Chunking pipeline for videos."""
-from __future__ import annotations
-
 from pathlib import Path
-from typing import Iterable, List
-
+from typing import Iterator, List
+import json
 from src.config import AppConfig
-from src.utils import video
-from src.utils.io import ManifestEntry, write_manifest
-from src.utils.logging import get_logger
+from src.utils.video import iter_videos, chunk_video
+from src.utils.io import ManifestEntry
 
-LOGGER = get_logger(__name__)
+def chunk_dataset(cfg: AppConfig) -> Iterator:
+    for path,label in iter_videos(Path(cfg.data.root_dir)):
+        yield from chunk_video(
+            path, label,
+            Path(cfg.data.processed_dir)/"chunks",
+            cfg.data.chunk_duration, cfg.data.min_frames, int(cfg.data.frame_rate * 15)
+        )
 
-
-def chunk_dataset(config: AppConfig) -> List[video.VideoChunk]:
-    """Process all videos into chunks and return chunk descriptors."""
-
-    root = config.data.root_dir
-    output_dir = config.data.processed_dir / "chunks"
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    metadata: List[video.VideoChunk] = []
-    for video_path, label in video.iter_videos(root):
-        LOGGER.info("Chunking video", extra={"video": str(video_path), "label": label})
-        for chunk in video.chunk_video(
-            video_path=video_path,
-            label=label,
-            output_dir=output_dir,
-            chunk_duration=config.data.chunk_duration,
-            min_frames=config.data.min_frames,
-            target_fps=config.data.frame_rate,
-        ):
-            metadata.append(chunk)
-    return metadata
-
-
-def persist_metadata(path: Path, metadata: Iterable[ManifestEntry]) -> None:
-    """Persist manifest entries to disk."""
-
-    write_manifest(path, metadata)
+def persist_metadata(path: Path, manifest: List[ManifestEntry]) -> None:
+    """Write manifest entries to disk as JSON."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        json.dump([item.to_dict() for item in manifest], handle, indent=2)

@@ -25,6 +25,7 @@ class RetrievalResult:
     start_time: float
     end_time: float
     asset_url: str
+    auto_labels: dict = None  # Auto-generated labels (objects, actions, captions, audio)
 
 
 class Retriever:
@@ -36,7 +37,9 @@ class Retriever:
         self.metadata = read_manifest(metadata_path)
         if not self.metadata:
             raise RuntimeError("Metadata is empty. Run the pipeline first.")
-        sample_embedding = np.load(self.metadata[0].embedding_path)
+        # Handle both string and Path objects
+        emb_path = Path(self.metadata[0].embedding_path) if isinstance(self.metadata[0].embedding_path, str) else self.metadata[0].embedding_path
+        sample_embedding = np.load(emb_path)
         dim = int(sample_embedding.shape[0])
         self.index = FAISSIndex(
             dim=dim,
@@ -47,14 +50,60 @@ class Retriever:
         self.index.load(config.index.faiss_index_path)
         self.dim = dim
 
-    def search(self, query_embedding: np.ndarray, top_k: int = 5) -> List[RetrievalResult]:
+    def search(
+        self, 
+        query_embedding: np.ndarray, 
+        top_k: int = 5,
+        filter_objects: List[str] = None,
+        filter_action: str = None,
+        min_confidence: float = 0.0
+    ) -> List[RetrievalResult]:
+        """Search with optional auto-label filters.
+        
+        Args:
+            query_embedding: Query vector
+            top_k: Number of results to return
+            filter_objects: Only return results containing these objects (e.g., ['person', 'car'])
+            filter_action: Only return results with this action (e.g., 'walking')
+            min_confidence: Minimum auto-label confidence score
+        
+        Returns:
+            List of retrieval results
+        """
         query_embedding = query_embedding.reshape(1, -1)
-        scores, indices = self.index.search(query_embedding, k=top_k)
+        # Search more results initially if filtering
+        search_k = top_k * 3 if (filter_objects or filter_action or min_confidence > 0) else top_k
+        scores, indices = self.index.search(query_embedding, k=search_k)
+        
         results: List[RetrievalResult] = []
         for score, idx in zip(scores[0], indices[0]):
             if idx == -1:
                 continue
             meta = self.metadata[idx]
+            
+            # Apply auto-label filters
+            if meta.auto_labels:
+                # Filter by objects
+                if filter_objects:
+                    detected_objects = meta.auto_labels.get('objects', [])
+                    if not any(obj in detected_objects for obj in filter_objects):
+                        continue
+                
+                # Filter by action
+                if filter_action:
+                    detected_action = meta.auto_labels.get('action', '').lower()
+                    if filter_action.lower() not in detected_action:
+                        continue
+                
+                # Filter by confidence
+                if min_confidence > 0:
+                    confidence = meta.auto_labels.get('confidence', 0.0)
+                    if confidence < min_confidence:
+                        continue
+            elif filter_objects or filter_action or min_confidence > 0:
+                # Skip results without auto_labels if filters are specified
+                continue
+            
             results.append(
                 RetrievalResult(
                     manifest_id=meta.manifest_id,
@@ -63,9 +112,15 @@ class Retriever:
                     start_time=meta.start_time,
                     end_time=meta.end_time,
                     asset_url=meta.chunk_path,
+                    auto_labels=meta.auto_labels  # Include auto-labels in results
                 )
             )
-        return results
+            
+            # Stop once we have enough filtered results
+            if len(results) >= top_k:
+                break
+        
+        return results[:top_k]
 
     def add_entry(self, entry: ManifestEntry, embedding: np.ndarray) -> None:
         """Add a manifest entry and embedding into the index at runtime."""

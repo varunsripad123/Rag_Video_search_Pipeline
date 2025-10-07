@@ -28,9 +28,12 @@ class BaseEncoder(ABC):
         """Return embedding vectors for inputs."""
 
     def _autocast(self):
+        from contextlib import nullcontext
+        
         if self.device.type == "cuda" and self.precision == "fp16":
             return torch.cuda.amp.autocast()
-        return torch.autocast(device_type=self.device.type, dtype=torch.float32, enabled=False)
+        # For CPU, disable autocast completely to avoid dtype issues
+        return nullcontext()
 
     def _fallback_encode(self, frames: Iterable[np.ndarray], components: int = 512) -> np.ndarray:
         """Compute lightweight histogram-based embeddings when models are unavailable."""

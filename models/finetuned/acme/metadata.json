@@ -1,0 +1,5 @@
+{
+  "client_name": "acme",
+  "base_model": "openai/clip-vit-base-patch32",
+  "trainable_params": 983040
+}

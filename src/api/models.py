@@ -15,6 +15,10 @@ class Message(BaseModel):
 class SearchOptions(BaseModel):
     expand: bool = True
     top_k: int = Field(5, ge=1, le=50)
+    # Auto-label filters (Zero-Copy AI)
+    filter_objects: Optional[List[str]] = Field(None, description="Filter by detected objects (e.g., ['person', 'car'])")
+    filter_action: Optional[str] = Field(None, description="Filter by action (e.g., 'walking')")
+    min_confidence: float = Field(0.0, ge=0.0, le=1.0, description="Minimum auto-label confidence")
 
 
 class SearchRequest(BaseModel):
@@ -30,6 +34,7 @@ class SearchResult(BaseModel):
     start_time: float
     end_time: float
     asset_url: str
+    auto_labels: Optional[dict] = Field(None, description="Auto-generated labels (objects, actions, captions)")
 
 
 class SearchResponse(BaseModel):
@@ -109,3 +114,25 @@ class RDPoint(BaseModel):
 
 class RDCurveResponse(BaseModel):
     points: List[RDPoint]
+
+
+# Auto-labeling models (Zero-Copy AI)
+class AutoLabelRequest(BaseModel):
+    """Request to auto-label a video chunk."""
+    manifest_id: str
+    include_audio: bool = Field(True, description="Include audio transcription")
+
+
+class AutoLabelResponse(BaseModel):
+    """Response with auto-generated labels."""
+    manifest_id: str
+    objects: List[str] = Field(default_factory=list, description="Detected objects")
+    object_counts: dict = Field(default_factory=dict, description="Object occurrence counts")
+    action: str = Field("unknown", description="Recognized action")
+    action_confidence: float = Field(0.0, ge=0.0, le=1.0)
+    caption: str = Field("", description="Generated caption")
+    audio_text: str = Field("", description="Transcribed audio")
+    has_speech: bool = Field(False)
+    audio_language: str = Field("unknown")
+    confidence: float = Field(0.0, ge=0.0, le=1.0, description="Overall confidence")
+    metadata: dict = Field(default_factory=dict)

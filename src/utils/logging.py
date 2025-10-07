@@ -1,24 +1,47 @@
 """Structured logging configuration."""
 from __future__ import annotations
 
+import json
 import logging
 import logging.config
 from pathlib import Path
 from typing import Optional
 
-from pythonjsonlogger import jsonlogger
+try:
+    from pythonjsonlogger import jsonlogger
+    HAS_JSON_LOGGER = True
+except ImportError:
+    HAS_JSON_LOGGER = False
 
 from src.config import AppConfig
 
 
-class _JsonFormatter(jsonlogger.JsonFormatter):
-    """Custom JSON formatter that ensures consistent keys."""
+class _SimpleJsonFormatter(logging.Formatter):
+    """Simple JSON formatter fallback."""
+    
+    def format(self, record):
+        log_obj = {
+            "timestamp": self.formatTime(record),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        if record.exc_info:
+            log_obj["exc_info"] = self.formatException(record.exc_info)
+        return json.dumps(log_obj)
 
-    def add_fields(self, log_record, record, message_dict):  # type: ignore[override]
-        super().add_fields(log_record, record, message_dict)
-        log_record.setdefault("level", record.levelname)
-        log_record.setdefault("logger", record.name)
-        log_record.setdefault("message", record.getMessage())
+
+if HAS_JSON_LOGGER:
+    class _JsonFormatter(jsonlogger.JsonFormatter):
+        """Custom JSON formatter that ensures consistent keys."""
+
+        def add_fields(self, log_record, record, message_dict):  # type: ignore[override]
+            super().add_fields(log_record, record, message_dict)
+            log_record.setdefault("level", record.levelname)
+            log_record.setdefault("logger", record.name)
+            log_record.setdefault("message", record.getMessage())
+else:
+    _JsonFormatter = _SimpleJsonFormatter  # type: ignore
 
 
 def configure_logging(config: AppConfig) -> None:

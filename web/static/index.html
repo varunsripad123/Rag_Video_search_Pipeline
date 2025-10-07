@@ -3,38 +3,158 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RAG Video Search</title>
+    <title>AI Video Search Platform - Powered by Multi-Modal RAG</title>
     <link rel="stylesheet" href="styles.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   </head>
   <body>
     <div class="app">
+      <!-- Header with branding -->
       <header>
-        <h1>RAG Video Search</h1>
-        <p>Conversational retrieval over your labeled video corpus.</p>
+        <div class="header-content">
+          <div class="logo">
+            <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect width="40" height="40" rx="8" fill="url(#gradient)"/>
+              <path d="M12 20L18 26L28 14" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+              <defs>
+                <linearGradient id="gradient" x1="0" y1="0" x2="40" y2="40">
+                  <stop offset="0%" stop-color="#38bdf8"/>
+                  <stop offset="100%" stop-color="#818cf8"/>
+                </linearGradient>
+              </defs>
+            </svg>
+            <div>
+              <h1>AI Video Search</h1>
+              <p class="tagline">Multi-Modal RAG Pipeline</p>
+            </div>
+          </div>
+          <div class="header-stats">
+            <div class="stat">
+              <span class="stat-value" id="totalVideos">--</span>
+              <span class="stat-label">Videos Indexed</span>
+            </div>
+            <div class="stat">
+              <span class="stat-value" id="indexSize">--</span>
+              <span class="stat-label">Index Size</span>
+            </div>
+            <div class="stat">
+              <span class="stat-value" id="searchTime">--</span>
+              <span class="stat-label">Avg Search Time</span>
+            </div>
+          </div>
+        </div>
       </header>
+
       <main>
-        <section class="controls">
-          <label>
-            API Endpoint
-            <input type="text" id="apiUrl" value="http://localhost:8080" />
-          </label>
-          <label>
-            API Key
-            <input type="password" id="apiKey" placeholder="Enter API key" />
-          </label>
-        </section>
-        <section class="chat">
-          <div id="history" class="history"></div>
-          <div class="input-row">
-            <input type="text" id="query" placeholder="Ask about your videos" />
-            <button id="send">Search</button>
+        <!-- Settings Panel (Collapsible) -->
+        <section class="settings-panel" id="settingsPanel">
+          <button class="settings-toggle" id="settingsToggle">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z"/>
+            </svg>
+            Settings
+          </button>
+          <div class="settings-content" id="settingsContent">
+            <div class="controls">
+              <label>
+                <span>API Endpoint</span>
+                <input type="text" id="apiUrl" value="http://localhost:8081" />
+              </label>
+              <label>
+                <span>API Key</span>
+                <input type="password" id="apiKey" value="changeme" />
+              </label>
+              <label>
+                <span>Results to show</span>
+                <input type="number" id="topK" value="5" min="1" max="20" />
+              </label>
+            </div>
           </div>
         </section>
-        <section class="results">
-          <h2>Results</h2>
-          <div id="results"></div>
+
+        <!-- Search Interface -->
+        <section class="search-section">
+          <div class="search-header">
+            <h2>Search Your Video Library</h2>
+            <p>Use natural language to find specific moments in your videos</p>
+          </div>
+          
+          <div class="search-box">
+            <div class="input-wrapper">
+              <svg class="search-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <circle cx="11" cy="11" r="8"/>
+                <path d="m21 21-4.35-4.35"/>
+              </svg>
+              <input 
+                type="text" 
+                id="query" 
+                placeholder="e.g., 'person waving', 'someone walking', 'hand gestures'..." 
+                autocomplete="off"
+              />
+              <button id="send" class="search-button">
+                <span class="button-text">Search</span>
+                <svg class="button-icon" width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/>
+                </svg>
+              </button>
+            </div>
+            <div class="search-suggestions">
+              <span>Try:</span>
+              <button class="suggestion-chip" data-query="person waving">person waving</button>
+              <button class="suggestion-chip" data-query="walking">walking</button>
+              <button class="suggestion-chip" data-query="hand gestures">hand gestures</button>
+            </div>
+          </div>
+
+          <!-- Loading State -->
+          <div class="loading-state" id="loadingState" style="display: none;">
+            <div class="spinner"></div>
+            <p>Searching through video embeddings...</p>
+          </div>
+        </section>
+
+        <!-- Results Section -->
+        <section class="results-section" id="resultsSection" style="display: none;">
+          <div class="results-header">
+            <h2>Search Results</h2>
+            <div class="results-meta">
+              <span id="resultCount">0 results</span>
+              <span class="separator">•</span>
+              <span id="searchDuration">0ms</span>
+            </div>
+          </div>
+          <div id="results" class="results-grid"></div>
+        </section>
+
+        <!-- Demo Info -->
+        <section class="demo-info">
+          <div class="info-card">
+            <h3>🎯 How It Works</h3>
+            <ul>
+              <li><strong>Multi-Modal Embeddings:</strong> CLIP + VideoMAE + VideoSwin for comprehensive video understanding</li>
+              <li><strong>Semantic Search:</strong> Find videos by meaning, not just keywords</li>
+              <li><strong>Fast Retrieval:</strong> FAISS-powered similarity search for instant results</li>
+              <li><strong>Scalable:</strong> Handles thousands of video clips efficiently</li>
+            </ul>
+          </div>
+          <div class="info-card">
+            <h3>💡 Use Cases</h3>
+            <ul>
+              <li>Security & Surveillance footage analysis</li>
+              <li>Sports video highlight generation</li>
+              <li>Content moderation at scale</li>
+              <li>Educational video indexing</li>
+            </ul>
+          </div>
         </section>
       </main>
+
+      <!-- Footer -->
+      <footer>
+        <p>Powered by CLIP, VideoMAE, VideoSwin & FAISS | Built for scalable video understanding</p>
+      </footer>
     </div>
     <script src="app.js"></script>
   </body>

@@ -19,3 +19,9 @@ rich==13.7.1
 structlog==24.1.0
 scikit-image==0.22.0
 blake3==0.4.1
+
+# Auto-labeling dependencies (Zero-Copy AI features)
+ultralytics==8.1.0  # YOLOv8 for object detection
+librosa==0.10.1  # Audio processing for Whisper
+pillow==10.2.0  # Image processing for BLIP-2
+# Note: BLIP-2 and Whisper models are loaded via transformers (already included)

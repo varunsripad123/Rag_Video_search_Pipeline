@@ -1,0 +1,5 @@
+# Fine-tuning dependencies
+peft>=0.7.0  # LoRA adapters
+accelerate>=0.25.0  # Training acceleration
+datasets>=2.15.0  # Dataset handling
+wandb>=0.16.0  # Experiment tracking (optional)
