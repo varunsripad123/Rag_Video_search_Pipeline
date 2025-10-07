@@ -48,6 +48,7 @@
       </header>
 
       <main>
+<<<<<<< HEAD
         <!-- Settings Panel (Collapsible) -->
         <section class="settings-panel" id="settingsPanel">
           <button class="settings-toggle" id="settingsToggle">
@@ -71,6 +72,32 @@
                 <input type="number" id="topK" value="5" min="1" max="20" />
               </label>
             </div>
+=======
+        <section class="controls">
+          <label>
+            API Endpoint
+            <input
+              type="text"
+              id="apiUrl"
+              placeholder="http://localhost:8080"
+              autocomplete="off"
+            />
+          </label>
+          <label>
+            API Key
+            <input type="password" id="apiKey" placeholder="Enter API key" />
+          </label>
+          <div class="status" id="status">
+            <span class="status-indicator" id="statusIndicator"></span>
+            <button id="checkConnection" type="button">Test connection</button>
+          </div>
+        </section>
+        <section class="chat">
+          <div id="history" class="history"></div>
+          <div class="input-row">
+            <input type="text" id="query" placeholder="Ask about your videos" />
+            <button id="send">Search</button>
+>>>>>>> 67ff2b56a350d48f470d344f346c58d5a74f096c
           </div>
         </section>
 
