@@ -19,7 +19,8 @@ import torch.multiprocessing as mp
 from torch.nn.parallel import DataParallel
 import cv2
 
-os.environ["HF_TOKEN"] = "***REMOVED***"
+# Set your HF token via environment variable: export HF_TOKEN="your_token_here"
+# os.environ["HF_TOKEN"] = "your_token_here"  # Don't hardcode tokens!
 
 sys.path.insert(0, str(Path(__file__).parent))
 
