@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["python310", "ffmpeg"]
+
+[phases.install]
+cmds = ["pip install -r requirements.txt", "pip install pyjwt"]
+
+[phases.build]
+cmds = ["mkdir -p ground_clips_mp4/uploads", "mkdir -p data/processed/embeddings"]
+
+[start]
+cmd = "python run_api.py"
